@@ -1,3 +1,8 @@
+"""
+name: handler.py
+description: ...
+"""
+
 from worker import file_threads, file_worker, ThreadData, file_threads_lock
 from database import File, Part, database, database_lock, State
 from loop import Code, loop
@@ -36,7 +41,7 @@ def update_file(id: int, file: File) -> File | None:
             return None
         else:
             base = File(*base)
-    for attr in ("ur", "path", "size", "state", "progress"):
+    for attr in ("url", "path", "size", "state", "progress"):
         val = getattr(file, attr)
         if val is not None:
             setattr(base, attr, val)
@@ -91,7 +96,7 @@ def update_part(id: int, part: Part) -> Part | None:
         if base is None:
             return None
         base = Part(*base)
-        for attr in ("ur", "path", "size", "state", "progress"):
+        for attr in ("url", "path", "size", "state", "progress"):
             val = getattr(part, attr)
             if val is not None:
                 setattr(base, attr, val)
@@ -127,7 +132,7 @@ def file_start(id: int):
     with database_lock:
         file = database.execute(
             "UPDATE files SET state = ? WHERE id = ? RETURNING *",
-            (id, State.PENDING.value),
+            (State.PENDING.value, id),
         ).fetchone()
     file = File(*file)
     file_thread = Thread(
@@ -159,9 +164,9 @@ def file_stop(id: int):
         del file_threads[file.id]
     with database_lock:
         file = database.execute(
-            "UPDATE files SET state = ? WHERE id = ? RETURNING *", (id, State.IDEL)
-        )
-    file = File(*file)
+            "UPDATE files SET state = ? WHERE id = ? RETURNING *", (State.IDEL.value, id)
+        ).fetchone()
+    file = File(*file) if file else None
     return file
 
 
