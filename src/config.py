@@ -1,3 +1,8 @@
+"""
+name: config.py
+description: Configuration management with environment variable loading
+"""
+
 from os import environ
 from log import log
 from dotenv import load_dotenv

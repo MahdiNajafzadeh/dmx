@@ -1,6 +1,6 @@
 """
 name: handler.py
-description: ...
+description: Request handlers for file/part CRUD operations and download control
 """
 
 from worker import file_threads, file_worker, ThreadData, file_threads_lock

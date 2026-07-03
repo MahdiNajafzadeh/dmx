@@ -1,3 +1,8 @@
+"""
+name: api.py
+description: FastAPI REST API endpoints for download management
+"""
+
 import uvicorn
 from fastapi import FastAPI
 from database import File

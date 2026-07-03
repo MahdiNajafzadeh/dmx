@@ -1,6 +1,6 @@
 """
 name: loop.py
-description: evet-loop is heart of system, all request must registry in this loop and use loop
+description: Event loop for handling async requests with thread-safe request/response pattern
 """
 
 from dataclasses import dataclass, field

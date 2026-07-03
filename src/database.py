@@ -1,3 +1,8 @@
+"""
+name: database.py
+description: SQLite database models and schema for file/part download management
+"""
+
 from dataclasses import dataclass
 from enum import IntEnum
 from sqlite3 import connect

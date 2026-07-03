@@ -1,6 +1,6 @@
 """
-name: database.py
-description: ...
+name: worker.py
+description: Worker thread pool for parallel file download with progress tracking
 """
 
 from dataclasses import dataclass
