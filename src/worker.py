@@ -108,11 +108,11 @@ def file_worker(file: File):
         log.error(f"update file state={file.state} with id={file.id}")
         raise e
     finally:
-        # rollback and cleanup
-        if file.id in shared:
-            file_thread = shared[file.id]
+        # rollback and cleanup (must hold lock to safely access shared dict)
+        with lock:
+            file_thread = shared.pop(file.id, None)
+        if file_thread is not None:
             file_thread.event_stop.set()
-            del shared[file.id]
 
 
 file_threads = shared
