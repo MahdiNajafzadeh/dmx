@@ -11,7 +11,7 @@ from log import log
 
 
 threads: list[Thread] = [
-    Thread(name="evet-loop", target=loop.loop),
+    Thread(name="event-loop", target=loop.loop),
     Thread(name="api", target=api_init),
     Thread(name="download", target=handler_init),
 ]

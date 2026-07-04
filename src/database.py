@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS parts (
 
 
 class State(IntEnum):
+    # NOTE: "IDEL" is a historical misspelling of "IDLE". Kept as-is because
+    # the database stores the integer value (0), not the member name. Renaming
+    # would require a database migration to remain backwards-compatible.
     IDEL = 0
     PENDING = 1
     ERROR = 2
@@ -47,9 +50,9 @@ class State(IntEnum):
 
 @dataclass
 class File:
-    id: int
-    url: str
-    path: str
+    id: int = 0  # 0 = unset; database AUTOINCREMENT assigns the real id
+    url: str = ""
+    path: str = ""
     size: int = 0
     state: State = State.IDEL
     progress: int = 0
@@ -57,9 +60,9 @@ class File:
 
 @dataclass
 class Part:
-    id: int
-    file_id: int
-    section: int
+    id: int = 0  # 0 = unset; database AUTOINCREMENT assigns the real id
+    file_id: int = 0
+    section: int = 0
     size: int = 0
     state: State = State.IDEL
     progress: int = 0

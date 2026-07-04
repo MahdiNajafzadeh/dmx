@@ -25,8 +25,6 @@ class Code(Enum):
     REQ_PART_CREATE = auto()
     REQ_PART_UPDATE = auto()
     REQ_PART_DELETE = auto()
-    REQ_PART_START = auto()
-    REQ_PART_STOP = auto()
 
 
 type Function = Callable[..., Any]

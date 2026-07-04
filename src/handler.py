@@ -6,7 +6,7 @@ description: Request handlers for file/part CRUD operations and download control
 from worker import file_threads, file_worker, ThreadData, file_threads_lock
 from database import File, Part, database, database_lock, State
 from loop import Code, loop
-from threading import Thread, Event
+from threading import Thread, Event, Semaphore
 
 
 @loop.handler(Code.REQ_FILE_GET_ALL)
@@ -96,14 +96,14 @@ def update_part(id: int, part: Part) -> Part | None:
         if base is None:
             return None
         base = Part(*base)
-        for attr in ("url", "path", "size", "state", "progress"):
+        for attr in ("size", "state", "progress"):
             val = getattr(part, attr)
             if val is not None:
                 setattr(base, attr, val)
 
         result = database.execute(
-            "UPDATE parts SET file_id = ?, section = ?, size = ?, state = ?, progress = ? WHERE id = ? RETURNING *",
-            (base.file_id, base.section, base.size, base.state, base.progress, base.id),
+            "UPDATE parts SET size = ?, state = ?, progress = ? WHERE id = ? RETURNING *",
+            (base.size, base.state, base.progress, base.id),
         ).fetchone()
         return Part(*result) if result else None
 
@@ -120,28 +120,29 @@ def delete_part(id: int) -> Part | None:
 
 @loop.handler(Code.REQ_FILE_START)
 def file_start(id: int):
+    # Lock order: database_lock first, then file_threads_lock (consistent with file_stop)
     with database_lock:
-        file = database.execute(
-            "SELECT * FROM files WHERE id = ? LIMIT 1", (id,)
-        ).fetchone()
+        file = database.execute("SELECT * FROM files WHERE id = ? LIMIT 1", (id,)).fetchone()
         if file is None:
             return None
         file = File(*file)
-    if file.state == State.PENDING and file_threads.get(id) is not None:
-        return file
+    with file_threads_lock:
+        if file.state == State.PENDING and file_threads.get(id) is not None:
+            return file
+    # Update file state to PENDING in database
     with database_lock:
         file = database.execute(
             "UPDATE files SET state = ? WHERE id = ? RETURNING *",
             (State.PENDING.value, id),
         ).fetchone()
     file = File(*file)
-    file_thread = Thread(
-        target=file_worker, args=(file,), name=f"file-{id}", daemon=True
-    )
     with file_threads_lock:
-        file_threads[id] = ThreadData(
-            thread=file_thread, value=file, event_stop=Event()
-        )
+        # Double-check to prevent concurrent file_start for the same file
+        existing = file_threads.get(id)
+        if existing is not None:
+            return existing.value
+        file_thread = Thread(target=file_worker, args=(file,), name=f"file-{id}", daemon=True)
+        file_threads[id] = ThreadData(thread=file_thread, value=file, event_stop=Event(), semaphore=Semaphore(1), parts={})
     file_thread.start()
     return file
 
@@ -149,23 +150,20 @@ def file_start(id: int):
 @loop.handler(Code.REQ_FILE_STOP)
 def file_stop(id: int):
     with database_lock:
-        file = database.execute(
-            "SELECT * FROM files WHERE id = ? LIMIT 1", (id,)
-        ).fetchone()
+        file = database.execute("SELECT * FROM files WHERE id = ? LIMIT 1", (id,)).fetchone()
         if file is None:
             return None
         file = File(*file)
-    file_thread = file_threads.get(id)
-    if file.state != State.PENDING and file_thread is None:
-        return file
-    if file_thread is not None:
-        file_thread.event_stop.set()
     with file_threads_lock:
-        del file_threads[file.id]
+        file_thread = file_threads.get(id)
+        if file.state != State.PENDING and file_thread is None:
+            return file
+        if file_thread is not None:
+            file_thread.event_stop.set()
+        # Use pop with default to avoid KeyError if key doesn't exist
+        file_threads.pop(file.id, None)
     with database_lock:
-        file = database.execute(
-            "UPDATE files SET state = ? WHERE id = ? RETURNING *", (State.IDEL.value, id)
-        ).fetchone()
+        file = database.execute("UPDATE files SET state = ? WHERE id = ? RETURNING *", (State.IDEL.value, id)).fetchone()
     file = File(*file) if file else None
     return file
 

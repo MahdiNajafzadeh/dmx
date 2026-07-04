@@ -50,6 +50,9 @@ def file_worker(file: File):
         # update size of file
         file.size = size
         loop.request(Code.REQ_FILE_UPDATE, file.id, file)
+        # Create and pre-allocate the download file
+        with open(file.path, "wb") as f:
+            f.truncate(size)
         # calculate total section of file
         sections = int(config.get("PARALLEL_CONNECTION", 8))
         sections = sections if sections > 0 else 1
@@ -57,7 +60,7 @@ def file_worker(file: File):
         # update file thread in shared object
         with lock:
             if file.id not in shared:
-                raise RuntimeError(f"aceess to file thread with id={file.id} in shared object")
+                raise RuntimeError(f"access to file thread with id={file.id} in shared object")
             file_thread = shared[file.id]
             file_thread.semaphore = Semaphore(sections)
             event_stop = file_thread.event_stop
@@ -106,11 +109,15 @@ def file_worker(file: File):
         raise e
     finally:
         # rollback and cleanup
-        if file.id not in shared:
-            return
-        file_thread = shared[file.id]
-        file_thread.event_stop.set()
-        del shared[file.id]
+        if file.id in shared:
+            file_thread = shared[file.id]
+            file_thread.event_stop.set()
+            del shared[file.id]
+
+
+file_threads = shared
+file_threads_lock = lock
+ThreadData = FileThread
 
 
 def part_worker(part: Part):
@@ -118,12 +125,10 @@ def part_worker(part: Part):
         if part.file_id not in shared:
             raise RuntimeError(f"access to file thread with id={part.file_id} in shared object")
         file_thread = shared[part.file_id]
-    file = file_thread.value
-    with lock:
+        file = file_thread.value
         if part.id not in file_thread.parts:
             raise RuntimeError(f"access to part thread with id={part.id} in file thread with id={part.file_id} in shared object")
-        # part_thread = file_thread.parts[part.id]
-    semaphore = file_thread.semaphore
+        semaphore = file_thread.semaphore
     with semaphore:
         sections = int(config.get("PARALLEL_CONNECTION", 8))
         sections = sections if sections > 0 else 1
@@ -133,7 +138,6 @@ def part_worker(part: Part):
         end_byte = start_byte + part.size - 1
         if part.section == sections - 1:
             end_byte = file.size - 1
-        pass
         headers = {"Range": f"bytes={start_byte}-{end_byte}"}
         res = httpx.get(file.url, headers=headers)
         res.raise_for_status()
@@ -144,6 +148,8 @@ def part_worker(part: Part):
             download_length = 0
             for chunk in res.iter_bytes():
                 if file_thread.event_stop.is_set():
+                    part.state = State.IDEL
+                    loop.request(Code.REQ_PART_UPDATE, part.id, part)
                     log.warning(f"part with id={part.id} for file with id={part.file_id} is stopped")
                     return
                 if chunk:
