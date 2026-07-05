@@ -55,7 +55,7 @@ class File:
     path: str = ""
     size: int = 0
     state: State = State.IDEL
-    progress: int = 0
+    progress: float = 0
 
 
 @dataclass
@@ -65,4 +65,4 @@ class Part:
     section: int = 0
     size: int = 0
     state: State = State.IDEL
-    progress: int = 0
+    progress: float = 0
