@@ -80,12 +80,18 @@ def file_worker(file: File):
                 event_stop=event_stop,
             )
             parts[part.id] = part_thread
-            part_thread.thread.start()
             log.info(f"create a new part thread with section={part.id} for file with id={file.id}")
         """
         apppend part threads in part_threads shared object
         """
         file_thread.parts = parts
+        """
+        start part threads
+        """
+        for idx in parts:
+            part = parts[idx]
+            part.thread.start()
+            log.info(f"start part thread with section={part.value.id} for file with id={part.value.file_id}")
         """
         join & cleanup part threads
         """
@@ -93,14 +99,15 @@ def file_worker(file: File):
             part_thread = file_thread.parts[idx]
             part_thread.thread.join()
             log.info(f"join part thread section={idx} for file with id={file.id}")
-            log.info(f"cleanup part thread section={idx} for file with id={file.id}")
             file_thread.parts.pop(idx)
+            log.info(f"cleanup part thread section={idx} for file with id={file.id}")
         with lock:
             if file.id in shared:
-                log.info(f"cleanup file thread with id={file.id} from shared object")
                 del shared[file.id]
+                log.info(f"cleanup file thread with id={file.id} from shared object")
         file.state = State.DONE
         loop.request(Code.REQ_FILE_UPDATE, file.id, file)
+        log.success(f"file with id={file.id} is done")
     except Exception as e:
         log.error(e)
         file.state = State.ERROR
@@ -113,11 +120,6 @@ def file_worker(file: File):
             file_thread = shared.pop(file.id, None)
         if file_thread is not None:
             file_thread.event_stop.set()
-
-
-file_threads = shared
-file_threads_lock = lock
-ThreadData = FileThread
 
 
 def part_worker(part: Part):
@@ -138,26 +140,30 @@ def part_worker(part: Part):
         end_byte = start_byte + part.size - 1
         if part.section == sections - 1:
             end_byte = file.size - 1
-        headers = {"Range": f"bytes={start_byte}-{end_byte}"}
-        res = httpx.get(file.url, headers=headers)
-        res.raise_for_status()
         part.state = State.PENDING
         loop.request(Code.REQ_PART_UPDATE, part.id, part)
         with open(file.path, "r+b") as f:
             f.seek(start_byte)
             download_length = 0
-            for chunk in res.iter_bytes():
-                if file_thread.event_stop.is_set():
-                    part.state = State.IDEL
-                    loop.request(Code.REQ_PART_UPDATE, part.id, part)
-                    log.warning(f"part with id={part.id} for file with id={part.file_id} is stopped")
-                    return
-                if chunk:
-                    f.write(chunk)
-                    download_length += len(chunk)
-                    progress = (download_length / (end_byte - start_byte + 1)) * 100
-                    if int(progress) % 5 == 0:
-                        part.progress = int(progress)
+            headers = {"Range": f"bytes={start_byte}-{end_byte}"}
+            log.info(f"part with id={part.id} start http request between {start_byte} - {end_byte}")
+            with httpx.stream("GET", file.url, headers=headers) as stream:
+                log.info(f"part with id={part.id} have http request state code {stream.status_code}")
+                stream.raise_for_status()
+                for chunk in stream.iter_bytes():
+                    if file_thread.event_stop.is_set():
+                        part.state = State.IDEL
                         loop.request(Code.REQ_PART_UPDATE, part.id, part)
+                        log.warning(f"part with id={part.id} for file with id={part.file_id} is stopped")
+                        return
+                    if chunk:
+                        f.write(chunk)
+                        download_length += len(chunk)
+                        progress = (download_length / (end_byte - start_byte + 1)) * 100
+                        if int(progress) % 5 == 0:
+                            part.progress = progress
+                            loop.request(Code.REQ_PART_UPDATE, part.id, part)
+                            log.info(f"part with id={part.id} update progress={part.progress}")
         part.state = State.DONE
         loop.request(Code.REQ_PART_UPDATE, part.id, part)
+        log.success(f"part with id={part.id} is done")
