@@ -80,7 +80,7 @@ graph TB
 sequenceDiagram
     participant Client
     participant API as api.py
-    participant Loop as loop.py
+    participant EventLoop as event_loop.py
     participant Handler as handler.py
     participant DB as database.py
     participant Worker as worker.py
@@ -88,18 +88,18 @@ sequenceDiagram
 
     Note over Client,Remote: 1. CREATE download record
     Client->>API: POST /download<br/>{url, path}
-    API->>Loop: loop.request(REQ_FILE_CREATE, file)
-    Loop->>Handler: dispatch create_file
+    API->>EventLoop: loop.request(REQ_FILE_CREATE, file)
+    EventLoop->>Handler: dispatch create_file
     Handler->>DB: INSERT INTO files (...) RETURNING *
     DB-->>Handler: File record
-    Handler-->>Loop: Response(result=File)
-    Loop-->>API: return File
+    Handler-->>EventLoop: Response(result=File)
+    EventLoop-->>API: return File
     API-->>Client: 201 Created
 
     Note over Client,Remote: 2. START download
     Client->>API: POST /download/{id}/start
-    API->>Loop: loop.request(REQ_FILE_START, id)
-    Loop->>Handler: dispatch file_start
+    API->>EventLoop: loop.request(REQ_FILE_START, id)
+    EventLoop->>Handler: dispatch file_start
     Handler->>DB: UPDATE files SET state=PENDING
     Handler->>Worker: Thread(file_worker) start
 
